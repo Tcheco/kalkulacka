@@ -285,7 +285,27 @@ function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;'
 function toast(msg,ms=2500){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),ms);}
 function loading(on){document.getElementById('loadingOverlay').style.display=on?'flex':'none';}
 function setSaveStatus(msg,color='var(--muted)'){const el=document.getElementById('saveStatus');el.textContent=msg;el.style.color=color;}
+// Převod interní hodnoty (vždy g nebo ml) na kg/l pro výpočet ceny
+// price_unit='kg' → amt je v g  → cena = (amt/1000) * price
+// price_unit='l'  → amt je v ml → cena = (amt/1000) * price  (stejné!)
+// Takže itemCost je vždy správné: /1000
 function itemCost(ing,amt){return(amt/1000)*ing.price;}
+
+// Převod interní hodnoty na zobrazovanou hodnotu
+function dispAmt(amt, amtUnit){
+  if(amtUnit==='l') return amt/1000;   // ml → l
+  if(amtUnit==='kg') return amt/1000;  // g → kg (pro budoucí použití)
+  return amt; // g nebo ml beze změny
+}
+
+// Převod zobrazované hodnoty na interní
+function toInternal(val, amtUnit){
+  if(amtUnit==='l') return val*1000;   // l → ml
+  if(amtUnit==='kg') return val*1000;  // kg → g
+  return val;
+}
+
+// Dostupné jednotky pro ingredienci
 function unitsForIng(ing){return ing.price_unit==='l'?['ml','l']:['g'];}
 function defUnit(ing){return ing.price_unit==='l'?'ml':'g';}
 
@@ -390,16 +410,18 @@ async function loadAll(){
   loading(true);
   try{
     const userId=currentUser.id;
-    const[{data:ings},{data:drs},{data:dis},{data:sets},{data:prods},{data:pitems}]=await Promise.all([
+    // fetch all in parallel – use maybeSingle() for settings to avoid error when row missing
+    const[r1,r2,r3,r4,r5,r6]=await Promise.all([
       sb.from('ingredients').select('*').eq('user_id',userId).order('sort_order'),
       sb.from('dough_recipes').select('*').eq('user_id',userId).order('sort_order'),
       sb.from('dough_items').select('*').eq('user_id',userId).order('sort_order'),
-      sb.from('user_settings').select('*').eq('user_id',userId).single(),
+      sb.from('user_settings').select('*').eq('user_id',userId).maybeSingle(),
       sb.from('products').select('*').eq('user_id',userId).order('sort_order'),
       sb.from('product_items').select('*').eq('user_id',userId),
     ]);
+    const ings=r1.data, drs=r2.data, dis=r3.data, sets=r4.data, prods=r5.data, pitems=r6.data;
     if(ings&&ings.length){
-      ingredients=(ings||[]).map(r=>({id:r.id,name:r.name,price:parseFloat(r.price),price_unit:r.price_unit}));
+      ingredients=ings.map(r=>({id:r.id,name:r.name,price:parseFloat(r.price),price_unit:r.price_unit}));
       doughRecipes=(drs||[]).map(r=>({
         id:r.id,name:r.name,emoji:r.emoji,
         items:(dis||[]).filter(d=>d.recipe_id===r.id).map(d=>({id:d.id,ingId:d.ing_id,amt:parseFloat(d.amt),amtUnit:d.amt_unit}))
@@ -418,32 +440,42 @@ async function loadAll(){
     } else {
       defaultState();
     }
-  }catch(e){console.error(e);defaultState();}
-  loading(false);
-  renderAll();
-  setSaveStatus('');
+  }catch(e){
+    console.error('loadAll error:',e);
+    defaultState();
+  }finally{
+    loading(false);
+    renderAll();
+    setSaveStatus('');
+  }
 }
 
 async function saveAll(){
   setSaveStatus('Ukládám…','var(--gold)');
+  loading(true);
   const userId=currentUser.id;
   try{
-    // delete all existing data for this user first
-    await Promise.all([
-      sb.from('product_items').delete().eq('user_id',userId),
-      sb.from('products').delete().eq('user_id',userId),
-      sb.from('dough_items').delete().eq('user_id',userId),
-      sb.from('dough_recipes').delete().eq('user_id',userId),
-      sb.from('ingredients').delete().eq('user_id',userId),
-    ]);
-    // insert fresh
-    if(ingredients.length)
-      await sb.from('ingredients').insert(ingredients.map((i,idx)=>({id:i.id,user_id:userId,name:i.name,price:i.price,price_unit:i.price_unit,sort_order:idx})));
+    // sekvenční mazání kvůli foreign key závislostem
+    await sb.from('product_items').delete().eq('user_id',userId);
+    await sb.from('products').delete().eq('user_id',userId);
+    await sb.from('dough_items').delete().eq('user_id',userId);
+    await sb.from('dough_recipes').delete().eq('user_id',userId);
+    await sb.from('ingredients').delete().eq('user_id',userId);
+
+    if(ingredients.length){
+      const{error:e1}=await sb.from('ingredients').insert(ingredients.map((i,idx)=>({
+        id:i.id,user_id:userId,name:i.name,price:i.price,price_unit:i.price_unit,sort_order:idx})));
+      if(e1)throw e1;
+    }
     for(let idx=0;idx<doughRecipes.length;idx++){
       const dr=doughRecipes[idx];
-      await sb.from('dough_recipes').insert({id:dr.id,user_id:userId,name:dr.name,emoji:dr.emoji,sort_order:idx});
-      if(dr.items&&dr.items.length)
-        await sb.from('dough_items').insert(dr.items.map((it,i)=>({id:it.id,recipe_id:dr.id,user_id:userId,ing_id:it.ingId,amt:it.amt,amt_unit:it.amtUnit,sort_order:i})));
+      const{error:e2}=await sb.from('dough_recipes').insert({id:dr.id,user_id:userId,name:dr.name,emoji:dr.emoji,sort_order:idx});
+      if(e2)throw e2;
+      if(dr.items&&dr.items.length){
+        const{error:e3}=await sb.from('dough_items').insert(dr.items.map((it,i)=>({
+          id:it.id,recipe_id:dr.id,user_id:userId,ing_id:it.ingId,amt:it.amt,amt_unit:it.amtUnit,sort_order:i})));
+        if(e3)throw e3;
+      }
     }
     await sb.from('user_settings').upsert({user_id:userId,
       labor_pct:parseFloat(document.getElementById('laborPct').value)||0,
@@ -452,16 +484,25 @@ async function saveAll(){
     });
     for(let idx=0;idx<products.length;idx++){
       const p=products[idx];
-      await sb.from('products').insert({id:p.id,user_id:userId,name:p.name,emoji:p.emoji,dough_recipe_id:p.doughRecipeId||null,dough_grams:p.doughGrams,sort_order:idx});
-      if(p.items&&p.items.length)
-        await sb.from('product_items').insert(p.items.map(it=>({id:it.id,product_id:p.id,user_id:userId,ing_id:it.ingId,amt:it.amt,amt_unit:it.amtUnit})));
+      const{error:e4}=await sb.from('products').insert({
+        id:p.id,user_id:userId,name:p.name,emoji:p.emoji,
+        dough_recipe_id:p.doughRecipeId||null,dough_grams:p.doughGrams,sort_order:idx});
+      if(e4)throw e4;
+      if(p.items&&p.items.length){
+        const{error:e5}=await sb.from('product_items').insert(p.items.map(it=>({
+          id:it.id,product_id:p.id,user_id:userId,ing_id:it.ingId,amt:it.amt,amt_unit:it.amtUnit})));
+        if(e5)throw e5;
+      }
     }
     setSaveStatus('✓ Uloženo','var(--green)');
     toast('✅ Uloženo do Supabase');
     setTimeout(()=>setSaveStatus(''),3000);
   }catch(e){
-    setSaveStatus('✗ Chyba','var(--accent)');
-    toast('❌ Chyba uložení: '+e.message);
+    console.error('saveAll error:',e);
+    setSaveStatus('✗ Chyba: '+(e.message||e.details||JSON.stringify(e)),'var(--accent)');
+    toast('❌ Chyba uložení – viz status');
+  }finally{
+    loading(false);
   }
 }
 
@@ -517,7 +558,15 @@ function renderIngList(){
   el.querySelectorAll('input').forEach(x=>x.addEventListener('input',()=>{
     const i=ingredients.find(v=>v.id===x.dataset.id);if(!i)return;
     i[x.dataset.f]=x.dataset.f==='price'?(parseFloat(x.value)||0):x.value;
-    renderDoughTabs();renderProducts();
+    // při změně ceny přepočítej těsto stat a ceny v kartách bez full renderu
+    renderDoughTabs();
+    // aktualizuj ceny v kartách produktů bez ztráty focusu
+    document.querySelectorAll('.card').forEach(card=>{
+      const pid=card.querySelector('[data-pname]')?.dataset.pname;
+      if(!pid)return;
+      const prod=products.find(p=>p.id===pid);
+      if(prod)updateCardPrices(card,prod);
+    });
   }));
   el.querySelectorAll('[data-punit]').forEach(btn=>btn.addEventListener('click',()=>{
     const i=ingredients.find(v=>v.id===btn.dataset.punit);if(!i)return;
@@ -585,12 +634,13 @@ function renderDoughIngList(recipe){
     const ing=ingredients.find(x=>x.id===item.ingId);
     const units=ing?unitsForIng(ing):['g'];
     if(!units.includes(item.amtUnit))item.amtUnit=units[0];
-    const dispAmt=item.amtUnit==='l'?(item.amt/1000):item.amt;
+    const dAmt=dispAmt(item.amt, item.amtUnit);
+    const step=item.amtUnit==='l'?'0.001':item.amtUnit==='ml'?'1':'1';
     const unitOpts=units.map(u=>`<option value="${u}"${u===item.amtUnit?' selected':''}>${u}</option>`).join('');
     const d=document.createElement('div');d.className='dough-ing-row';
     d.innerHTML=`
       <select data-di="${item.id}" data-f="ingId">${ingOpts(item.ingId)}</select>
-      <input type="number" value="${dispAmt}" min="0" step="${item.amtUnit==='l'?'0.001':'5'}" data-di="${item.id}" data-f="amt">
+      <input type="number" value="${dAmt}" min="0" step="${step}" data-di="${item.id}" data-f="amt">
       <select class="usel" data-di="${item.id}" data-f="amtUnit" style="width:100%">${unitOpts}</select>
       <button class="btn-icon" data-deld="${item.id}">×</button>`;
     el.appendChild(d);
@@ -598,9 +648,24 @@ function renderDoughIngList(recipe){
   el.querySelectorAll('[data-di]').forEach(x=>x.addEventListener('input',()=>{
     const it=recipe.items.find(r=>r.id===x.dataset.di);if(!it)return;
     if(x.dataset.f==='ingId'){it.ingId=x.value;it.amtUnit=defUnit(ingredients.find(v=>v.id===it.ingId));renderDoughTabs();return;}
-    else if(x.dataset.f==='amt'){it.amt=it.amtUnit==='l'?(parseFloat(x.value)||0)*1000:(parseFloat(x.value)||0);}
-    else if(x.dataset.f==='amtUnit'){it.amtUnit=x.value;renderDoughTabs();return;}
-    renderDoughTabs();renderProducts();
+    else if(x.dataset.f==='amt'){
+      it.amt=toInternal(parseFloat(x.value)||0, it.amtUnit);
+    }
+    else if(x.dataset.f==='amtUnit'){
+      // přepočítej interní hodnotu při změně jednotky
+      const oldDisp=dispAmt(it.amt, it.amtUnit);
+      it.amtUnit=x.value;
+      it.amt=toInternal(oldDisp, it.amtUnit);
+      renderDoughTabs();return;
+    }
+    renderDoughTabs();
+    // aktualizuj ceny karet bez full renderu
+    document.querySelectorAll('.card').forEach(card=>{
+      const pid=card.querySelector('[data-pname]')?.dataset.pname;
+      if(!pid)return;
+      const prod=products.find(p=>p.id===pid);
+      if(prod)updateCardPrices(card,prod);
+    });
   }));
   el.querySelectorAll('[data-deld]').forEach(b=>b.addEventListener('click',()=>{
     recipe.items=recipe.items.filter(r=>r.id!==b.dataset.deld);renderDoughTabs();renderProducts();
@@ -611,9 +676,60 @@ document.getElementById('btnAddDough').addEventListener('click',()=>{
   const dr={id:uid(),name:'Nové těsto',emoji:'🫓',items:[]};
   doughRecipes.push(dr);activeDoughId=dr.id;renderDoughTabs();
 });
-['laborPct','marginPct','vatPct'].forEach(id=>document.getElementById(id).addEventListener('input',renderProducts));
+['laborPct','marginPct','vatPct'].forEach(id=>document.getElementById(id).addEventListener('input',()=>{
+  document.querySelectorAll('.card').forEach(card=>{
+    const pid=card.querySelector('[data-pname]')?.dataset.pname;
+    if(!pid)return;
+    const prod=products.find(p=>p.id===pid);
+    if(prod)updateCardPrices(card,prod);
+  });
+}));
 
 function doughOpts(selId){return doughRecipes.map(d=>`<option value="${d.id}"${d.id===selId?' selected':''}>${d.emoji} ${esc(d.name)}</option>`).join('');}
+
+// Aktualizuje pouze ceny v kartě bez překreslení – zachová focus
+function updateCardPrices(card, prod){
+  const C=calcProduct(prod);
+  const recipe=doughRecipes.find(d=>d.id===prod.doughRecipeId);
+  const{pricePerKg}=calcDough(recipe);
+  const dci=(prod.doughGrams/1000)*pricePerKg;
+  const fc=fcCls(C.foodCostPct);
+
+  // těsto cena
+  const doughIc=card.querySelector('.dough-row .ic');
+  if(doughIc)doughIc.textContent=dci.toFixed(2)+' Kč';
+
+  // ingredience ceny
+  prod.items.forEach(item=>{
+    const ing=ingredients.find(i=>i.id===item.ingId);
+    const ic=ing?itemCost(ing,item.amt):0;
+    const row=card.querySelector(`[data-iid="${item.id}"] .ic`)||
+              card.querySelector(`.p-row .ic`); // fallback
+    // najdi řádek podle item id v p-row
+  });
+  // přepočítej všechny .ic v p-row řádcích
+  card.querySelectorAll('.p-row').forEach((row,i)=>{
+    const item=prod.items[i];if(!item)return;
+    const ing=ingredients.find(x=>x.id===item.ingId);
+    const ic=ing?itemCost(ing,item.amt):0;
+    const icEl=row.querySelector('.ic');
+    if(icEl)icEl.textContent=ic.toFixed(2)+' Kč';
+  });
+
+  // footer
+  const foot=card.querySelector('.cost-bd');
+  if(foot)foot.innerHTML=`
+    suroviny celkem <span>${C.raw.toFixed(2)} Kč</span><br>
+    + práce &amp; energie <span>${(C.wL-C.raw).toFixed(2)} Kč</span><br>
+    + marže <span>${(C.wM-C.wL).toFixed(2)} Kč</span><br>
+    + DPH <span>${(C.wV-C.wM).toFixed(2)} Kč</span>`;
+
+  const tp=card.querySelector('.total-price');
+  if(tp)tp.innerHTML=`${C.wV.toFixed(2)} Kč<small>prod. cena vč. DPH</small>`;
+
+  const fcEl=card.querySelector('.fc-badge span');
+  if(fcEl){fcEl.textContent=C.foodCostPct.toFixed(1)+' %';fcEl.className=fc;}
+}
 
 function renderProducts(){
   const grid=document.getElementById('grid');
@@ -634,12 +750,13 @@ function renderProducts(){
       const ic=ing?itemCost(ing,item.amt):0;
       const units=ing?unitsForIng(ing):['g'];
       if(!units.includes(item.amtUnit))item.amtUnit=units[0];
-      const dispAmt=item.amtUnit==='l'?(item.amt/1000):item.amt;
+      const dAmt=dispAmt(item.amt, item.amtUnit);
+      const step=item.amtUnit==='l'?'0.001':item.amtUnit==='ml'?'1':'1';
       const unitOpts=units.map(u=>`<option value="${u}"${u===item.amtUnit?' selected':''}>${u}</option>`).join('');
       return`<div class="p-row">
         <select data-item="${item.id}" data-f="ingId">${ingOpts(item.ingId)}</select>
         <div class="amt-cell">
-          <input type="number" value="${dispAmt}" min="0" step="${item.amtUnit==='l'?'0.001':'5'}" data-item="${item.id}" data-f="amt">
+          <input type="number" value="${dAmt}" min="0" step="${step}" data-item="${item.id}" data-f="amt">
           <select class="usel" data-item="${item.id}" data-f="amtUnit">${unitOpts}</select>
         </div>
         <div class="ic">${ic.toFixed(2)} Kč</div>
@@ -688,10 +805,18 @@ function renderProducts(){
         </div>
       </div>`;
 
-    card.querySelector(`[data-pname="${prod.id}"]`).addEventListener('input',e=>{prod.name=e.target.value;});
-    card.querySelector(`[data-rmprod="${prod.id}"]`).addEventListener('click',()=>{products=products.filter(p=>p.id!==prod.id);renderProducts();});
-    card.querySelector(`[data-drsel="${prod.id}"]`).addEventListener('input',e=>{prod.doughRecipeId=e.target.value;renderProducts();});
-    card.querySelector(`[data-pdough="${prod.id}"]`).addEventListener('input',e=>{prod.doughGrams=parseFloat(e.target.value)||0;renderProducts();});
+    card.querySelector(`[data-pname="${prod.id}"]`).addEventListener('input',e=>{
+      prod.name=e.target.value;
+      // jen aktualizuj emoji v headeru, nepřekresluj celou kartu
+    });
+    card.querySelector(`[data-rmprod="${prod.id}"]`).addEventListener('click',()=>{
+      products=products.filter(p=>p.id!==prod.id);renderProducts();});
+    card.querySelector(`[data-drsel="${prod.id}"]`).addEventListener('change',e=>{
+      prod.doughRecipeId=e.target.value;renderProducts();});
+    card.querySelector(`[data-pdough="${prod.id}"]`).addEventListener('input',e=>{
+      prod.doughGrams=parseFloat(e.target.value)||0;
+      updateCardPrices(card,prod);
+    });
     card.querySelector(`[data-additem="${prod.id}"]`).addEventListener('click',()=>{
       const def=ingredients[0];if(!def)return;
       prod.items.push({id:uid(),ingId:def.id,amt:50,amtUnit:defUnit(def)});renderProducts();});
@@ -699,9 +824,19 @@ function renderProducts(){
       prod.items=prod.items.filter(it=>it.id!==b.dataset.delitem);renderProducts();}));
     card.querySelectorAll('[data-item]').forEach(x=>x.addEventListener('input',()=>{
       const it=prod.items.find(v=>v.id===x.dataset.item);if(!it)return;
-      if(x.dataset.f==='ingId'){it.ingId=x.value;it.amtUnit=defUnit(ingredients.find(v=>v.id===it.ingId));renderProducts();}
-      else if(x.dataset.f==='amt'){it.amt=it.amtUnit==='l'?(parseFloat(x.value)||0)*1000:(parseFloat(x.value)||0);renderProducts();}
-      else if(x.dataset.f==='amtUnit'){it.amtUnit=x.value;renderProducts();}
+      if(x.dataset.f==='ingId'){
+        it.ingId=x.value;
+        it.amtUnit=defUnit(ingredients.find(v=>v.id===it.ingId));
+        renderProducts();
+      } else if(x.dataset.f==='amt'){
+        it.amt=toInternal(parseFloat(x.value)||0, it.amtUnit);
+        updateCardPrices(card,prod);
+      } else if(x.dataset.f==='amtUnit'){
+        const oldDisp=dispAmt(it.amt, it.amtUnit);
+        it.amtUnit=x.value;
+        it.amt=toInternal(oldDisp, it.amtUnit);
+        renderProducts();
+      }
     }));
     grid.appendChild(card);
   });
@@ -725,7 +860,8 @@ function buildExportRows(){
     (prod.items||[]).forEach(it=>{
       const ing=ingredients.find(i=>i.id===it.ingId);
       const ic=ing?itemCost(ing,it.amt):0;
-      const disp=it.amtUnit==='l'?(it.amt/1000)+' l':it.amt+' '+it.amtUnit;
+      const dAmt=dispAmt(it.amt, it.amtUnit);
+      const disp=`${dAmt} ${it.amtUnit}`;
       rows.push({'Produkt':'','Ingredience':ing?ing.name:'?','Množství':disp,
         'Cena mat. (Kč)':+ic.toFixed(2),'Mat. celkem (Kč)':'','Cena bez DPH (Kč)':'','Cena s DPH (Kč)':'','Food Cost %':''});
     });

@@ -1,0 +1,773 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kalkulačka receptur</title>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;1,400&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<style>
+:root{
+  --bg:#0f0e0c;--surface:#1a1815;--accent:#e8532a;--accent2:#f2a24a;
+  --gold:#d4a843;--text:#f0ead8;--muted:#7a7060;--border:#2e2b24;
+  --dough:#c49a2a;--dough-bg:#1e1a0f;--green:#5a9e6a;--r:8px;
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{background:var(--bg);color:var(--text);font-family:'DM Mono',monospace;min-height:100vh;
+  background-image:radial-gradient(ellipse at 20% 0%,#2a1a0e44 0%,transparent 60%),radial-gradient(ellipse at 80% 100%,#1a0e0844 0%,transparent 60%);}
+
+/* ── AUTH ── */
+#authScreen{display:flex;align-items:center;justify-content:center;min-height:100vh;padding:20px;}
+.auth-box{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:40px 36px;width:100%;max-width:420px;}
+.auth-logo{font-family:'Playfair Display',serif;font-size:2rem;color:var(--accent);margin-bottom:4px;}
+.auth-sub{font-size:0.68rem;color:var(--muted);letter-spacing:2px;text-transform:uppercase;margin-bottom:32px;}
+.auth-tabs{display:flex;border:1px solid var(--border);border-radius:var(--r);overflow:hidden;margin-bottom:24px;}
+.auth-tab{flex:1;background:transparent;border:none;color:var(--muted);font-family:'DM Mono',monospace;
+  font-size:0.75rem;letter-spacing:1px;padding:10px;cursor:pointer;transition:all .2s;}
+.auth-tab.active{background:var(--accent);color:#fff;}
+.field{margin-bottom:14px;}
+.field label{display:block;font-size:0.63rem;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:6px;}
+.field input{background:var(--bg);border:1px solid var(--border);color:var(--text);font-family:'DM Mono',monospace;
+  font-size:0.85rem;padding:10px 12px;border-radius:var(--r);width:100%;outline:none;transition:border-color .2s;}
+.field input:focus{border-color:var(--accent);}
+.field input::placeholder{color:var(--muted);}
+.auth-msg{font-size:0.72rem;min-height:20px;margin-bottom:10px;}
+.auth-err{color:var(--accent);}
+.auth-ok{color:var(--green);}
+.btn-auth{width:100%;background:var(--accent);border:none;color:#fff;font-family:'DM Mono',monospace;
+  font-size:0.75rem;letter-spacing:2px;text-transform:uppercase;padding:12px;border-radius:var(--r);
+  cursor:pointer;transition:background .2s;margin-top:4px;}
+.btn-auth:hover{background:#c94420;}
+.btn-auth:disabled{opacity:.5;cursor:not-allowed;}
+
+/* ── HEADER ── */
+#appScreen{display:none;}
+header{border-bottom:1px solid var(--border);padding:14px 24px;display:flex;align-items:center;gap:12px;
+  background:linear-gradient(180deg,#1a1410 0%,transparent 100%);}
+header h1{font-family:'Playfair Display',serif;font-size:1.45rem;color:var(--accent);flex:1;}
+.user-badge{font-size:0.65rem;color:var(--muted);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.btn-sm{background:transparent;border:1px solid var(--border);color:var(--muted);font-family:'DM Mono',monospace;
+  font-size:0.63rem;letter-spacing:1px;padding:6px 11px;border-radius:var(--r);cursor:pointer;transition:all .2s;white-space:nowrap;}
+.btn-sm:hover{border-color:var(--text);color:var(--text);}
+.btn-sm.red:hover{border-color:var(--accent);color:var(--accent);}
+.save-status{font-size:0.6rem;color:var(--muted);white-space:nowrap;}
+
+/* ── LAYOUT ── */
+.layout{display:grid;grid-template-columns:440px 1fr;min-height:calc(100vh - 61px);}
+.sidebar{border-right:1px solid var(--border);padding:18px 15px;display:flex;flex-direction:column;gap:15px;
+  background:var(--surface);overflow-y:auto;}
+.lbl{font-size:0.56rem;letter-spacing:3px;text-transform:uppercase;color:var(--muted);margin-bottom:7px;}
+.divider{height:1px;background:var(--border);flex-shrink:0;}
+.col-lbl{font-size:0.55rem;color:var(--muted);}
+
+/* ── INPUTS ── */
+input[type="text"],input[type="number"]{background:var(--bg);border:1px solid var(--border);color:var(--text);
+  font-family:'DM Mono',monospace;font-size:0.82rem;padding:7px 10px;border-radius:var(--r);
+  width:100%;outline:none;transition:border-color .2s;}
+input:focus{border-color:var(--accent);}
+input::placeholder{color:var(--muted);}
+select{background:var(--bg);border:1px solid var(--border);color:var(--text);font-family:'DM Mono',monospace;
+  font-size:0.8rem;padding:7px 8px;border-radius:var(--r);width:100%;outline:none;cursor:pointer;transition:border-color .2s;}
+select:focus{border-color:var(--accent);}
+.psuf{position:relative;}
+.psuf input{padding-right:54px;}
+.psuf::after{content:attr(data-s);position:absolute;right:8px;top:50%;transform:translateY(-50%);
+  font-size:0.58rem;color:var(--muted);pointer-events:none;}
+.unit-toggle{display:flex;border:1px solid var(--border);border-radius:var(--r);overflow:hidden;flex-shrink:0;}
+.unit-toggle button{background:transparent;border:none;color:var(--muted);font-family:'DM Mono',monospace;
+  font-size:0.62rem;padding:0 7px;cursor:pointer;transition:all .15s;height:100%;white-space:nowrap;}
+.unit-toggle button.active{background:var(--accent);color:#fff;}
+.unit-toggle button:not(.active):hover{background:#2a2720;color:var(--text);}
+.usel{background:var(--bg);border:1px solid var(--border);color:var(--muted);font-family:'DM Mono',monospace;
+  font-size:0.64rem;padding:4px;border-radius:var(--r);cursor:pointer;outline:none;width:44px;flex-shrink:0;}
+.amt-cell{display:flex;gap:4px;align-items:center;}
+.amt-cell input{min-width:0;flex:1;}
+.btn-icon{width:28px;height:28px;background:transparent;border:1px solid var(--border);border-radius:var(--r);
+  color:var(--muted);cursor:pointer;font-size:0.9rem;display:flex;align-items:center;justify-content:center;transition:all .2s;flex-shrink:0;}
+.btn-icon:hover{border-color:var(--accent);color:var(--accent);}
+.btn-add{background:transparent;border:1px dashed var(--border);border-radius:var(--r);color:var(--muted);
+  font-family:'DM Mono',monospace;font-size:0.7rem;padding:7px;cursor:pointer;transition:all .2s;width:100%;letter-spacing:1px;}
+.btn-add:hover{border-color:var(--accent2);color:var(--accent2);}
+.ing-row{display:grid;grid-template-columns:1fr 110px 68px 28px;gap:5px;align-items:center;margin-bottom:6px;}
+.dough-ing-row{display:grid;grid-template-columns:1fr 110px 68px 28px;gap:5px;align-items:center;margin-bottom:6px;}
+
+/* ── TĚSTO TABS ── */
+.dough-tabs-wrap{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;align-items:center;}
+.dough-tab{background:transparent;border:1px solid var(--border);color:var(--muted);font-family:'DM Mono',monospace;
+  font-size:0.68rem;padding:5px 11px;border-radius:20px;cursor:pointer;transition:all .2s;white-space:nowrap;}
+.dough-tab.active{background:var(--dough);border-color:var(--dough);color:#fff;}
+.dough-tab:not(.active):hover{border-color:var(--dough);color:var(--dough);}
+.dough-panel{background:var(--dough-bg);border:1px solid #4a3a10;border-radius:10px;padding:14px;}
+.dough-panel .lbl{color:var(--dough);}
+.dough-name-input{background:transparent;border:none;border-bottom:1px solid var(--border);color:var(--dough);
+  font-family:'DM Mono',monospace;font-size:0.8rem;padding:4px 0;outline:none;width:100%;margin-bottom:10px;transition:border-color .2s;}
+.dough-name-input:focus{border-bottom-color:var(--dough);}
+.dough-stat{display:flex;justify-content:space-between;align-items:flex-end;padding:8px 0 0;border-top:1px solid #2e2a1a;margin-top:6px;}
+.dst-lbl{font-size:0.56rem;letter-spacing:1px;color:var(--muted);text-transform:uppercase;margin-bottom:3px;}
+.dst-val{color:var(--dough);font-size:0.88rem;font-weight:500;}
+
+/* ── PŘIRÁŽKY ── */
+.margin-row{display:grid;grid-template-columns:1fr 82px;gap:8px;align-items:center;font-size:0.8rem;color:var(--muted);margin-bottom:7px;}
+.pct-w{position:relative;}
+.pct-w input{padding-right:24px;}
+.pct-w::after{content:'%';position:absolute;right:8px;top:50%;transform:translateY(-50%);font-size:0.65rem;color:var(--muted);pointer-events:none;}
+
+/* ── MAIN ── */
+.main{padding:18px 22px;display:flex;flex-direction:column;gap:16px;}
+.toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
+.btn-primary{background:var(--accent);border:none;color:#fff;font-family:'DM Mono',monospace;font-size:0.7rem;
+  letter-spacing:1.5px;text-transform:uppercase;padding:9px 16px;border-radius:var(--r);cursor:pointer;transition:background .2s,transform .1s;}
+.btn-primary:hover{background:#c94420;}
+.btn-primary:active{transform:scale(.97);}
+.btn-export{background:transparent;border:1px solid var(--green);color:var(--green);font-family:'DM Mono',monospace;
+  font-size:0.66rem;letter-spacing:1px;padding:8px 13px;border-radius:var(--r);cursor:pointer;transition:all .2s;}
+.btn-export:hover{background:var(--green);color:#fff;}
+.btn-csv{border-color:#7ab87a;color:#7ab87a;}
+.btn-csv:hover{background:#7ab87a;color:#fff;}
+.btn-print{background:transparent;border:1px solid var(--gold);color:var(--gold);font-family:'DM Mono',monospace;
+  font-size:0.66rem;letter-spacing:1px;padding:8px 13px;border-radius:var(--r);cursor:pointer;transition:all .2s;}
+.btn-print:hover{background:var(--gold);color:#000;}
+
+/* ── PRODUCT CARDS ── */
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:14px;}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden;transition:border-color .2s;}
+.card:hover{border-color:#3e3a30;}
+.card-head{padding:12px 14px 9px;display:flex;align-items:center;gap:9px;border-bottom:1px solid var(--border);}
+.card-emoji{font-size:1.25rem;}
+.card-name{flex:1;background:transparent;border:none;font-family:'Playfair Display',serif;font-size:0.98rem;color:var(--text);
+  outline:none;border-bottom:1px solid transparent;padding:2px 0;transition:border-color .2s;}
+.card-name:focus{border-bottom-color:var(--accent);}
+.card-name::placeholder{color:var(--muted);font-style:italic;}
+.btn-rm{background:transparent;border:none;color:var(--muted);cursor:pointer;font-size:.88rem;opacity:0;transition:opacity .2s,color .2s;}
+.card:hover .btn-rm{opacity:1;}
+.btn-rm:hover{color:var(--accent);}
+.card-body{padding:11px 14px;}
+.col-hdr{display:grid;grid-template-columns:1fr 104px 82px 28px;gap:5px;margin-bottom:4px;}
+.col-hdr div{font-size:0.56rem;color:var(--muted);}
+.dough-row{display:grid;grid-template-columns:1fr 104px 82px 28px;gap:5px;align-items:center;
+  background:var(--dough-bg);border:1px solid #3a3010;border-radius:var(--r);padding:6px 9px;margin-bottom:7px;}
+.dough-badge{font-size:0.56rem;letter-spacing:1px;color:var(--dough);text-transform:uppercase;}
+.dough-sub{font-size:0.58rem;color:var(--muted);margin-top:2px;}
+.p-row{display:grid;grid-template-columns:1fr 104px 82px 28px;gap:5px;align-items:center;margin-bottom:5px;}
+.ic{text-align:right;color:var(--gold);font-size:0.73rem;font-weight:500;}
+.card-foot{border-top:1px solid var(--border);padding:10px 14px;display:flex;align-items:center;justify-content:space-between;gap:8px;}
+.cost-bd{font-size:0.64rem;color:var(--muted);line-height:1.9;}
+.cost-bd span{color:var(--text);}
+.total-price{font-family:'Playfair Display',serif;font-size:1.35rem;color:var(--accent2);font-style:italic;text-align:right;}
+.total-price small{font-family:'DM Mono',monospace;font-size:0.56rem;color:var(--muted);font-style:normal;display:block;}
+.fc-badge{font-size:0.59rem;letter-spacing:1px;color:var(--muted);margin-top:4px;text-align:right;}
+.fc-badge span{padding:2px 7px;border-radius:20px;border:1px solid;font-weight:500;}
+.fc-g{color:var(--green);border-color:var(--green);}
+.fc-o{color:var(--gold);border-color:var(--gold);}
+.fc-b{color:var(--accent);border-color:var(--accent);}
+
+.empty{text-align:center;padding:60px 20px;color:var(--muted);}
+.empty .big{font-size:3rem;margin-bottom:12px;}
+.loading-overlay{position:fixed;inset:0;background:#0f0e0ccc;display:flex;align-items:center;justify-content:center;z-index:100;}
+.spinner{width:36px;height:36px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite;}
+@keyframes spin{to{transform:rotate(360deg)}}
+.toast{position:fixed;bottom:24px;right:24px;background:var(--surface);border:1px solid var(--border);
+  color:var(--text);font-size:0.75rem;padding:10px 18px;border-radius:var(--r);z-index:200;
+  opacity:0;transition:opacity .3s;pointer-events:none;}
+.toast.show{opacity:1;}
+
+/* ── PRINT ── */
+@media print{
+  #authScreen,.toolbar,.sidebar,header .btn-sm,header .save-status,.btn-rm,.btn-icon,
+  [data-additem],[data-pdough],[data-item],[data-pname],.dough-sel-wrap button{display:none!important;}
+  body{background:#fff!important;color:#000!important;font-family:Arial,sans-serif;}
+  .layout{display:block!important;}
+  .main{padding:0!important;}
+  .grid{display:block!important;}
+  .card{border:1px solid #ccc!important;border-radius:0!important;margin-bottom:18px!important;
+    page-break-inside:avoid;background:#fff!important;color:#000!important;}
+  .card-head{background:#f5f5f5!important;border-bottom:1px solid #ccc!important;}
+  .card-name{color:#000!important;}
+  .dough-row{background:#fdf8e8!important;border:1px solid #ddd!important;}
+  .dough-badge,.dough-sub{color:#666!important;}
+  .card-foot{background:#f9f9f9!important;}
+  .cost-bd,.cost-bd span,.total-price,.total-price small,.ic{color:#000!important;}
+  .col-hdr div{color:#555!important;}
+  select,.usel{color:#000!important;border:1px solid #ccc!important;}
+  @page{margin:15mm;}
+}
+@media(max-width:860px){
+  .layout{grid-template-columns:1fr}
+  .sidebar{border-right:none;border-bottom:1px solid var(--border)}
+  .main{padding:14px}
+}
+</style>
+</head>
+<body>
+<div id="loadingOverlay" class="loading-overlay"><div class="spinner"></div></div>
+
+<!-- AUTH -->
+<div id="authScreen" style="display:none">
+  <div class="auth-box">
+    <div class="auth-logo">🍕 Receptury</div>
+    <div class="auth-sub">Kalkulačka nákladů</div>
+    <div class="auth-tabs">
+      <button class="auth-tab active" id="tabLogin" onclick="switchTab('login')">Přihlásit se</button>
+      <button class="auth-tab" id="tabReg" onclick="switchTab('register')">Registrace</button>
+    </div>
+    <div class="field"><label>E-mail</label><input type="text" id="authEmail" placeholder="vas@email.cz" autocomplete="email"></div>
+    <div class="field"><label>Heslo</label><input type="password" id="authPwd" placeholder="••••••••" autocomplete="current-password" onkeydown="if(event.key==='Enter')doAuth()"></div>
+    <div id="authMsg" class="auth-msg"></div>
+    <button class="btn-auth" id="btnAuth" onclick="doAuth()">Přihlásit se</button>
+  </div>
+</div>
+
+<!-- APP -->
+<div id="appScreen">
+  <header>
+    <h1>🍕 Kalkulačka receptur</h1>
+    <span class="user-badge" id="userEmail"></span>
+    <span class="save-status" id="saveStatus"></span>
+    <button class="btn-sm" onclick="saveAll()">💾 Uložit vše</button>
+    <button class="btn-sm red" onclick="signOut()">Odhlásit</button>
+  </header>
+  <div class="layout">
+    <aside class="sidebar">
+      <div>
+        <div class="lbl">Suroviny</div>
+        <div style="display:grid;grid-template-columns:1fr 110px 68px 28px;gap:5px;margin-bottom:5px">
+          <div class="col-lbl">Název</div><div class="col-lbl">Cena/jedn.</div><div class="col-lbl">Jedn.</div><div></div>
+        </div>
+        <div id="ingList"></div>
+        <button class="btn-add" id="btnAddIng">+ Přidat surovinu</button>
+      </div>
+      <div class="divider"></div>
+      <div>
+        <div class="lbl">Receptury těst</div>
+        <div class="dough-tabs-wrap" id="doughTabs"></div>
+        <div class="dough-panel" id="doughPanel"></div>
+        <button class="btn-add" id="btnAddDough" style="margin-top:8px">+ Nová receptura těsta</button>
+      </div>
+      <div class="divider"></div>
+      <div>
+        <div class="lbl">Kalkulační přirážky</div>
+        <div class="margin-row"><span>Práce &amp; energie</span><div class="pct-w"><input type="number" id="laborPct" value="30" min="0" max="500" step="1"></div></div>
+        <div class="margin-row"><span>Marže (zisk)</span><div class="pct-w"><input type="number" id="marginPct" value="25" min="0" max="500" step="1"></div></div>
+        <div class="margin-row"><span>DPH</span><div class="pct-w"><input type="number" id="vatPct" value="12" min="0" max="100" step="1"></div></div>
+      </div>
+      <div style="font-size:0.6rem;color:var(--muted);line-height:1.7">(těsto+ing)×(1+práce%)×(1+marže%)×(1+DPH%)</div>
+    </aside>
+    <main class="main">
+      <div class="toolbar">
+        <button class="btn-primary" id="btnAddProduct">+ Nový produkt</button>
+        <button class="btn-export" onclick="exportExcel()">⬇ Excel</button>
+        <button class="btn-export btn-csv" onclick="exportCSV()">⬇ CSV</button>
+        <button class="btn-print" onclick="window.print()">🖨 Tisk</button>
+      </div>
+      <div class="grid" id="grid">
+        <div class="empty" id="emptyState"><div class="big">🍕</div><p>Přidejte první produkt</p></div>
+      </div>
+    </main>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+// ══════════════════════════════════════════════════════════
+//  ⚙️  SUPABASE KONFIGURACE
+// ══════════════════════════════════════════════════════════
+const SUPABASE_URL  = 'https://hwenfpkblmtnobwwewhp.supabase.co';
+const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imh3ZW5mcGtibG10bm9id3dld2hwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc4NDgwNTQsImV4cCI6MjA5MzQyNDA1NH0.plT43IRJIpXZDQbjf74JI0SvB4Wd0J7wNKmprM9Y53w';
+// ══════════════════════════════════════════════════════════
+
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
+let currentUser = null;
+
+// ── utils ──────────────────────────────────────────────────
+function uid(){return Math.random().toString(36).slice(2,9);}
+function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');}
+function toast(msg,ms=2500){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),ms);}
+function loading(on){document.getElementById('loadingOverlay').style.display=on?'flex':'none';}
+function setSaveStatus(msg,color='var(--muted)'){const el=document.getElementById('saveStatus');el.textContent=msg;el.style.color=color;}
+function itemCost(ing,amt){return(amt/1000)*ing.price;}
+function unitsForIng(ing){return ing.price_unit==='l'?['ml','l']:['g'];}
+function defUnit(ing){return ing.price_unit==='l'?'ml':'g';}
+
+// ── STATE ──────────────────────────────────────────────────
+let ingredients=[], doughRecipes=[], products=[];
+let activeDoughId=null;
+
+function mkIng(name,price,pu){return{id:uid(),name,price,price_unit:pu};}
+
+function defaultState(){
+  const flour =mkIng('Mouka (00)',18,'kg');
+  const water =mkIng('Voda',0,'l');
+  const salt  =mkIng('Sůl',8,'kg');
+  const yeast =mkIng('Droždí čerstvé',60,'kg');
+  const oil   =mkIng('Olivový olej',120,'l');
+  const sauce =mkIng('Rajčatová omáčka',45,'kg');
+  const mozz  =mkIng('Mozzarella',190,'kg');
+  const ham   =mkIng('Šunka',160,'kg');
+  const sugar =mkIng('Cukr',24,'kg');
+  const kv    =mkIng('Kvasnice čerstvé',60,'kg');
+  ingredients=[flour,water,salt,yeast,oil,sauce,mozz,ham,sugar,kv];
+
+  const dPizza={id:uid(),name:'Pizza těsto',emoji:'🍕',items:[
+    {id:uid(),ingId:flour.id,amt:1000,amtUnit:'g'},
+    {id:uid(),ingId:water.id,amt:620,amtUnit:'ml'},
+    {id:uid(),ingId:salt.id,amt:20,amtUnit:'g'},
+    {id:uid(),ingId:yeast.id,amt:10,amtUnit:'g'},
+    {id:uid(),ingId:oil.id,amt:30,amtUnit:'ml'},
+  ]};
+  const dEsfiha={id:uid(),name:'Esfiha těsto',emoji:'🫓',items:[
+    {id:uid(),ingId:flour.id,amt:1000,amtUnit:'g'},
+    {id:uid(),ingId:sugar.id,amt:125,amtUnit:'g'},
+    {id:uid(),ingId:salt.id,amt:15,amtUnit:'g'},
+    {id:uid(),ingId:oil.id,amt:125,amtUnit:'ml'},
+    {id:uid(),ingId:water.id,amt:500,amtUnit:'ml'},
+    {id:uid(),ingId:kv.id,amt:15,amtUnit:'g'},
+  ]};
+  doughRecipes=[dPizza,dEsfiha];
+  activeDoughId=dPizza.id;
+
+  products=[
+    {id:uid(),name:'Margherita',emoji:'🍕',doughRecipeId:dPizza.id,doughGrams:240,items:[
+      {id:uid(),ingId:sauce.id,amt:80,amtUnit:'g'},
+      {id:uid(),ingId:mozz.id,amt:130,amtUnit:'g'},
+      {id:uid(),ingId:oil.id,amt:10,amtUnit:'ml'},
+    ]},
+    {id:uid(),name:'Šunkovo-sýrová',emoji:'🍕',doughRecipeId:dPizza.id,doughGrams:240,items:[
+      {id:uid(),ingId:sauce.id,amt:80,amtUnit:'g'},
+      {id:uid(),ingId:mozz.id,amt:120,amtUnit:'g'},
+      {id:uid(),ingId:ham.id,amt:80,amtUnit:'g'},
+    ]},
+    {id:uid(),name:'Esfiha masová',emoji:'🫓',doughRecipeId:dEsfiha.id,doughGrams:80,items:[
+      {id:uid(),ingId:ham.id,amt:60,amtUnit:'g'},
+    ]},
+  ];
+}
+
+// ── AUTH ───────────────────────────────────────────────────
+let authMode='login';
+function switchTab(m){
+  authMode=m;
+  document.getElementById('tabLogin').classList.toggle('active',m==='login');
+  document.getElementById('tabReg').classList.toggle('active',m==='register');
+  document.getElementById('btnAuth').textContent=m==='login'?'Přihlásit se':'Zaregistrovat se';
+  document.getElementById('authMsg').textContent='';
+  document.getElementById('authMsg').className='auth-msg';
+}
+
+async function doAuth(){
+  const email=document.getElementById('authEmail').value.trim();
+  const pwd=document.getElementById('authPwd').value;
+  const msgEl=document.getElementById('authMsg');
+  const btn=document.getElementById('btnAuth');
+  msgEl.textContent='';
+  if(!email||!pwd){msgEl.className='auth-msg auth-err';msgEl.textContent='Vyplňte email a heslo.';return;}
+  btn.disabled=true;loading(true);
+  try{
+    if(authMode==='register'){
+      const{error}=await sb.auth.signUp({email,password:pwd});
+      if(error){msgEl.className='auth-msg auth-err';msgEl.textContent=error.message;btn.disabled=false;loading(false);return;}
+      msgEl.className='auth-msg auth-ok';msgEl.textContent='Účet vytvořen! Přihlašuji…';
+    }
+    const{error}=await sb.auth.signInWithPassword({email,password:pwd});
+    if(error){msgEl.className='auth-msg auth-err';msgEl.textContent='Chybné přihlašovací údaje.';btn.disabled=false;loading(false);return;}
+  }catch(e){
+    msgEl.className='auth-msg auth-err';msgEl.textContent='Chyba připojení.';
+    btn.disabled=false;loading(false);
+  }
+}
+
+async function signOut(){
+  await sb.auth.signOut();
+  document.getElementById('appScreen').style.display='none';
+  document.getElementById('authScreen').style.display='flex';
+  document.getElementById('authEmail').value='';
+  document.getElementById('authPwd').value='';
+  document.getElementById('btnAuth').disabled=false;
+}
+
+// ── LOAD / SAVE ────────────────────────────────────────────
+async function loadAll(){
+  loading(true);
+  try{
+    const userId=currentUser.id;
+    const[{data:ings},{data:drs},{data:dis},{data:sets},{data:prods},{data:pitems}]=await Promise.all([
+      sb.from('ingredients').select('*').eq('user_id',userId).order('sort_order'),
+      sb.from('dough_recipes').select('*').eq('user_id',userId).order('sort_order'),
+      sb.from('dough_items').select('*').eq('user_id',userId).order('sort_order'),
+      sb.from('user_settings').select('*').eq('user_id',userId).single(),
+      sb.from('products').select('*').eq('user_id',userId).order('sort_order'),
+      sb.from('product_items').select('*').eq('user_id',userId),
+    ]);
+    if(ings&&ings.length){
+      ingredients=(ings||[]).map(r=>({id:r.id,name:r.name,price:parseFloat(r.price),price_unit:r.price_unit}));
+      doughRecipes=(drs||[]).map(r=>({
+        id:r.id,name:r.name,emoji:r.emoji,
+        items:(dis||[]).filter(d=>d.recipe_id===r.id).map(d=>({id:d.id,ingId:d.ing_id,amt:parseFloat(d.amt),amtUnit:d.amt_unit}))
+      }));
+      activeDoughId=doughRecipes[0]?.id||null;
+      if(sets){
+        document.getElementById('laborPct').value=sets.labor_pct??30;
+        document.getElementById('marginPct').value=sets.margin_pct??25;
+        document.getElementById('vatPct').value=sets.vat_pct??12;
+      }
+      products=(prods||[]).map(p=>({
+        id:p.id,name:p.name,emoji:p.emoji||'🍕',
+        doughRecipeId:p.dough_recipe_id,doughGrams:parseFloat(p.dough_grams),
+        items:(pitems||[]).filter(i=>i.product_id===p.id).map(i=>({id:i.id,ingId:i.ing_id,amt:parseFloat(i.amt),amtUnit:i.amt_unit}))
+      }));
+    } else {
+      defaultState();
+    }
+  }catch(e){console.error(e);defaultState();}
+  loading(false);
+  renderAll();
+  setSaveStatus('');
+}
+
+async function saveAll(){
+  setSaveStatus('Ukládám…','var(--gold)');
+  const userId=currentUser.id;
+  try{
+    // delete all existing data for this user first
+    await Promise.all([
+      sb.from('product_items').delete().eq('user_id',userId),
+      sb.from('products').delete().eq('user_id',userId),
+      sb.from('dough_items').delete().eq('user_id',userId),
+      sb.from('dough_recipes').delete().eq('user_id',userId),
+      sb.from('ingredients').delete().eq('user_id',userId),
+    ]);
+    // insert fresh
+    if(ingredients.length)
+      await sb.from('ingredients').insert(ingredients.map((i,idx)=>({id:i.id,user_id:userId,name:i.name,price:i.price,price_unit:i.price_unit,sort_order:idx})));
+    for(let idx=0;idx<doughRecipes.length;idx++){
+      const dr=doughRecipes[idx];
+      await sb.from('dough_recipes').insert({id:dr.id,user_id:userId,name:dr.name,emoji:dr.emoji,sort_order:idx});
+      if(dr.items&&dr.items.length)
+        await sb.from('dough_items').insert(dr.items.map((it,i)=>({id:it.id,recipe_id:dr.id,user_id:userId,ing_id:it.ingId,amt:it.amt,amt_unit:it.amtUnit,sort_order:i})));
+    }
+    await sb.from('user_settings').upsert({user_id:userId,
+      labor_pct:parseFloat(document.getElementById('laborPct').value)||0,
+      margin_pct:parseFloat(document.getElementById('marginPct').value)||0,
+      vat_pct:parseFloat(document.getElementById('vatPct').value)||0,
+    });
+    for(let idx=0;idx<products.length;idx++){
+      const p=products[idx];
+      await sb.from('products').insert({id:p.id,user_id:userId,name:p.name,emoji:p.emoji,dough_recipe_id:p.doughRecipeId||null,dough_grams:p.doughGrams,sort_order:idx});
+      if(p.items&&p.items.length)
+        await sb.from('product_items').insert(p.items.map(it=>({id:it.id,product_id:p.id,user_id:userId,ing_id:it.ingId,amt:it.amt,amt_unit:it.amtUnit})));
+    }
+    setSaveStatus('✓ Uloženo','var(--green)');
+    toast('✅ Uloženo do Supabase');
+    setTimeout(()=>setSaveStatus(''),3000);
+  }catch(e){
+    setSaveStatus('✗ Chyba','var(--accent)');
+    toast('❌ Chyba uložení: '+e.message);
+  }
+}
+
+// ── CALC ───────────────────────────────────────────────────
+function calcDough(recipe){
+  if(!recipe)return{totalG:0,pricePerKg:0};
+  let g=0,cost=0;
+  (recipe.items||[]).forEach(r=>{
+    const i=ingredients.find(x=>x.id===r.ingId);
+    g+=r.amt;if(i)cost+=itemCost(i,r.amt);
+  });
+  return{totalG:g,pricePerKg:g>0?(cost/g)*1000:0};
+}
+function getM(){return{
+  labor:(parseFloat(document.getElementById('laborPct').value)||0)/100,
+  margin:(parseFloat(document.getElementById('marginPct').value)||0)/100,
+  vat:(parseFloat(document.getElementById('vatPct').value)||0)/100,
+};}
+function calcProduct(prod){
+  const recipe=doughRecipes.find(d=>d.id===prod.doughRecipeId);
+  const{pricePerKg}=calcDough(recipe);
+  const doughCost=(prod.doughGrams/1000)*pricePerKg;
+  let ingCost=0;
+  (prod.items||[]).forEach(it=>{const i=ingredients.find(x=>x.id===it.ingId);if(i)ingCost+=itemCost(i,it.amt);});
+  const raw=doughCost+ingCost;
+  const{labor,margin,vat}=getM();
+  const wL=raw*(1+labor),wM=wL*(1+margin),wV=wM*(1+vat);
+  return{doughCost,ingCost,raw,wL,wM,wV,foodCostPct:wM>0?(raw/wM)*100:0};
+}
+function fcCls(p){return p<=30?'fc-g':p<=40?'fc-o':'fc-b';}
+
+// ── RENDER ─────────────────────────────────────────────────
+function renderAll(){renderIngList();renderDoughTabs();renderProducts();}
+
+function ingOpts(selId){return ingredients.map(i=>`<option value="${i.id}"${i.id===selId?' selected':''}>${esc(i.name)||'—'}</option>`).join('');}
+function puToggle(ing){return`<div class="unit-toggle" style="height:34px">
+  <button class="${ing.price_unit==='kg'?'active':''}" data-punit="${ing.id}" data-val="kg">kg</button>
+  <button class="${ing.price_unit==='l'?'active':''}" data-punit="${ing.id}" data-val="l">l</button>
+</div>`;}
+
+function renderIngList(){
+  const el=document.getElementById('ingList');el.innerHTML='';
+  ingredients.forEach(ing=>{
+    const lbl=ing.price_unit==='l'?'Kč/l':'Kč/kg';
+    const d=document.createElement('div');d.className='ing-row';
+    d.innerHTML=`
+      <input type="text" placeholder="Název" value="${esc(ing.name)}" data-id="${ing.id}" data-f="name">
+      <div class="psuf" data-s="${lbl}"><input type="number" value="${ing.price}" min="0" step="0.5" data-id="${ing.id}" data-f="price"></div>
+      ${puToggle(ing)}
+      <button class="btn-icon" data-di="${ing.id}">×</button>`;
+    el.appendChild(d);
+  });
+  el.querySelectorAll('input').forEach(x=>x.addEventListener('input',()=>{
+    const i=ingredients.find(v=>v.id===x.dataset.id);if(!i)return;
+    i[x.dataset.f]=x.dataset.f==='price'?(parseFloat(x.value)||0):x.value;
+    renderDoughTabs();renderProducts();
+  }));
+  el.querySelectorAll('[data-punit]').forEach(btn=>btn.addEventListener('click',()=>{
+    const i=ingredients.find(v=>v.id===btn.dataset.punit);if(!i)return;
+    i.price_unit=btn.dataset.val;renderAll();
+  }));
+  el.querySelectorAll('[data-di]').forEach(b=>b.addEventListener('click',()=>{
+    const id=b.dataset.di;
+    ingredients=ingredients.filter(i=>i.id!==id);
+    doughRecipes.forEach(dr=>dr.items=dr.items.filter(r=>r.ingId!==id));
+    products.forEach(p=>p.items=p.items.filter(it=>it.ingId!==id));
+    renderAll();
+  }));
+}
+document.getElementById('btnAddIng').addEventListener('click',()=>{
+  ingredients.push({id:uid(),name:'',price:0,price_unit:'kg'});renderAll();});
+
+function renderDoughTabs(){
+  const tabsEl=document.getElementById('doughTabs');tabsEl.innerHTML='';
+  doughRecipes.forEach(dr=>{
+    const btn=document.createElement('button');
+    btn.className='dough-tab'+(dr.id===activeDoughId?' active':'');
+    btn.textContent=dr.emoji+' '+dr.name;
+    btn.onclick=()=>{activeDoughId=dr.id;renderDoughTabs();};
+    tabsEl.appendChild(btn);
+  });
+  const recipe=doughRecipes.find(d=>d.id===activeDoughId);
+  const panel=document.getElementById('doughPanel');panel.innerHTML='';
+  if(!recipe)return;
+  const{totalG,pricePerKg}=calcDough(recipe);
+  const wrap=document.createElement('div');
+  wrap.innerHTML=`
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+      <input class="dough-name-input" style="flex:1" value="${esc(recipe.name)}" data-dname="${recipe.id}" placeholder="Název těsta">
+      <button class="btn-icon" style="color:var(--accent);border-color:#4a1a10" data-delrecipe="${recipe.id}" title="Smazat">🗑</button>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 110px 68px 28px;gap:5px;margin-bottom:5px">
+      <div class="col-lbl">Surovina</div><div class="col-lbl">Množství</div><div class="col-lbl">Jedn.</div><div></div>
+    </div>
+    <div id="doughIngList"></div>
+    <button class="btn-add" id="btnAddDoughIng" style="margin-top:4px">+ Přidat surovinu</button>
+    <div class="dough-stat">
+      <div><div class="dst-lbl">Celk. hmotnost</div><div style="font-size:0.8rem;color:var(--text)">${totalG.toLocaleString('cs')} g</div></div>
+      <div style="text-align:right"><div class="dst-lbl">Cena / kg těsta</div><div class="dst-val">${pricePerKg.toFixed(2).replace('.',',')} Kč</div></div>
+    </div>`;
+  panel.appendChild(wrap);
+  wrap.querySelector(`[data-dname]`).addEventListener('input',e=>{recipe.name=e.target.value;renderDoughTabs();});
+  wrap.querySelector(`[data-delrecipe]`).addEventListener('click',()=>{
+    if(doughRecipes.length<=1){toast('⚠️ Musí zůstat alespoň jedna receptura');return;}
+    doughRecipes=doughRecipes.filter(d=>d.id!==recipe.id);
+    products.forEach(p=>{if(p.doughRecipeId===recipe.id)p.doughRecipeId=doughRecipes[0]?.id||null;});
+    activeDoughId=doughRecipes[0]?.id||null;renderAll();
+  });
+  renderDoughIngList(recipe);
+  document.getElementById('btnAddDoughIng').addEventListener('click',()=>{
+    const def=ingredients[0];if(!def)return;
+    recipe.items.push({id:uid(),ingId:def.id,amt:100,amtUnit:defUnit(def)});
+    renderDoughTabs();renderProducts();
+  });
+}
+
+function renderDoughIngList(recipe){
+  const el=document.getElementById('doughIngList');if(!el)return;
+  el.innerHTML='';
+  (recipe.items||[]).forEach(item=>{
+    const ing=ingredients.find(x=>x.id===item.ingId);
+    const units=ing?unitsForIng(ing):['g'];
+    if(!units.includes(item.amtUnit))item.amtUnit=units[0];
+    const dispAmt=item.amtUnit==='l'?(item.amt/1000):item.amt;
+    const unitOpts=units.map(u=>`<option value="${u}"${u===item.amtUnit?' selected':''}>${u}</option>`).join('');
+    const d=document.createElement('div');d.className='dough-ing-row';
+    d.innerHTML=`
+      <select data-di="${item.id}" data-f="ingId">${ingOpts(item.ingId)}</select>
+      <input type="number" value="${dispAmt}" min="0" step="${item.amtUnit==='l'?'0.001':'5'}" data-di="${item.id}" data-f="amt">
+      <select class="usel" data-di="${item.id}" data-f="amtUnit" style="width:100%">${unitOpts}</select>
+      <button class="btn-icon" data-deld="${item.id}">×</button>`;
+    el.appendChild(d);
+  });
+  el.querySelectorAll('[data-di]').forEach(x=>x.addEventListener('input',()=>{
+    const it=recipe.items.find(r=>r.id===x.dataset.di);if(!it)return;
+    if(x.dataset.f==='ingId'){it.ingId=x.value;it.amtUnit=defUnit(ingredients.find(v=>v.id===it.ingId));renderDoughTabs();return;}
+    else if(x.dataset.f==='amt'){it.amt=it.amtUnit==='l'?(parseFloat(x.value)||0)*1000:(parseFloat(x.value)||0);}
+    else if(x.dataset.f==='amtUnit'){it.amtUnit=x.value;renderDoughTabs();return;}
+    renderDoughTabs();renderProducts();
+  }));
+  el.querySelectorAll('[data-deld]').forEach(b=>b.addEventListener('click',()=>{
+    recipe.items=recipe.items.filter(r=>r.id!==b.dataset.deld);renderDoughTabs();renderProducts();
+  }));
+}
+
+document.getElementById('btnAddDough').addEventListener('click',()=>{
+  const dr={id:uid(),name:'Nové těsto',emoji:'🫓',items:[]};
+  doughRecipes.push(dr);activeDoughId=dr.id;renderDoughTabs();
+});
+['laborPct','marginPct','vatPct'].forEach(id=>document.getElementById(id).addEventListener('input',renderProducts));
+
+function doughOpts(selId){return doughRecipes.map(d=>`<option value="${d.id}"${d.id===selId?' selected':''}>${d.emoji} ${esc(d.name)}</option>`).join('');}
+
+function renderProducts(){
+  const grid=document.getElementById('grid');
+  const empty=document.getElementById('emptyState');
+  Array.from(grid.children).forEach(c=>{if(c!==empty)c.remove();});
+  if(!products.length){empty.style.display='block';return;}
+  empty.style.display='none';
+
+  products.forEach(prod=>{
+    const C=calcProduct(prod);
+    const recipe=doughRecipes.find(d=>d.id===prod.doughRecipeId);
+    const{pricePerKg}=calcDough(recipe);
+    const dci=(prod.doughGrams/1000)*pricePerKg;
+    const fc=fcCls(C.foodCostPct);
+
+    const ingRowsHtml=(prod.items||[]).map(item=>{
+      const ing=ingredients.find(i=>i.id===item.ingId);
+      const ic=ing?itemCost(ing,item.amt):0;
+      const units=ing?unitsForIng(ing):['g'];
+      if(!units.includes(item.amtUnit))item.amtUnit=units[0];
+      const dispAmt=item.amtUnit==='l'?(item.amt/1000):item.amt;
+      const unitOpts=units.map(u=>`<option value="${u}"${u===item.amtUnit?' selected':''}>${u}</option>`).join('');
+      return`<div class="p-row">
+        <select data-item="${item.id}" data-f="ingId">${ingOpts(item.ingId)}</select>
+        <div class="amt-cell">
+          <input type="number" value="${dispAmt}" min="0" step="${item.amtUnit==='l'?'0.001':'5'}" data-item="${item.id}" data-f="amt">
+          <select class="usel" data-item="${item.id}" data-f="amtUnit">${unitOpts}</select>
+        </div>
+        <div class="ic">${ic.toFixed(2)} Kč</div>
+        <button class="btn-icon" style="width:24px;height:24px;font-size:.8rem" data-delitem="${item.id}">×</button>
+      </div>`;
+    }).join('');
+
+    const card=document.createElement('div');card.className='card';
+    card.innerHTML=`
+      <div class="card-head">
+        <span class="card-emoji">${prod.emoji}</span>
+        <input class="card-name" type="text" placeholder="Název produktu…" value="${esc(prod.name)}" data-pname="${prod.id}">
+        <button class="btn-rm" data-rmprod="${prod.id}">✕</button>
+      </div>
+      <div class="card-body">
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;font-size:0.62rem;color:var(--muted)">
+          <span>Těsto:</span>
+          <select data-drsel="${prod.id}" style="font-size:0.72rem;padding:4px 6px;width:auto">${doughOpts(prod.doughRecipeId)}</select>
+        </div>
+        <div class="col-hdr"><div>Ingredience</div><div>Množství</div><div style="text-align:right">Cena mat.</div><div></div></div>
+        <div class="dough-row">
+          <div>
+            <div class="dough-badge">${recipe?recipe.emoji:'🫓'} ${recipe?esc(recipe.name):'těsto'}</div>
+            <div class="dough-sub">${pricePerKg.toFixed(2)} Kč/kg</div>
+          </div>
+          <div class="amt-cell">
+            <input type="number" value="${prod.doughGrams}" min="0" step="10" data-pdough="${prod.id}">
+            <div style="font-size:0.63rem;color:var(--muted);padding:0 4px;white-space:nowrap">g</div>
+          </div>
+          <div class="ic">${dci.toFixed(2)} Kč</div>
+          <div></div>
+        </div>
+        ${ingRowsHtml}
+        <button class="btn-add" style="font-size:0.67rem;margin-top:4px" data-additem="${prod.id}">+ Přidat ingredienci</button>
+      </div>
+      <div class="card-foot">
+        <div class="cost-bd">
+          suroviny celkem <span>${C.raw.toFixed(2)} Kč</span><br>
+          + práce &amp; energie <span>${(C.wL-C.raw).toFixed(2)} Kč</span><br>
+          + marže <span>${(C.wM-C.wL).toFixed(2)} Kč</span><br>
+          + DPH <span>${(C.wV-C.wM).toFixed(2)} Kč</span>
+        </div>
+        <div>
+          <div class="total-price">${C.wV.toFixed(2)} Kč<small>prod. cena vč. DPH</small></div>
+          <div class="fc-badge">food cost <span class="${fc}">${C.foodCostPct.toFixed(1)} %</span></div>
+        </div>
+      </div>`;
+
+    card.querySelector(`[data-pname="${prod.id}"]`).addEventListener('input',e=>{prod.name=e.target.value;});
+    card.querySelector(`[data-rmprod="${prod.id}"]`).addEventListener('click',()=>{products=products.filter(p=>p.id!==prod.id);renderProducts();});
+    card.querySelector(`[data-drsel="${prod.id}"]`).addEventListener('input',e=>{prod.doughRecipeId=e.target.value;renderProducts();});
+    card.querySelector(`[data-pdough="${prod.id}"]`).addEventListener('input',e=>{prod.doughGrams=parseFloat(e.target.value)||0;renderProducts();});
+    card.querySelector(`[data-additem="${prod.id}"]`).addEventListener('click',()=>{
+      const def=ingredients[0];if(!def)return;
+      prod.items.push({id:uid(),ingId:def.id,amt:50,amtUnit:defUnit(def)});renderProducts();});
+    card.querySelectorAll('[data-delitem]').forEach(b=>b.addEventListener('click',()=>{
+      prod.items=prod.items.filter(it=>it.id!==b.dataset.delitem);renderProducts();}));
+    card.querySelectorAll('[data-item]').forEach(x=>x.addEventListener('input',()=>{
+      const it=prod.items.find(v=>v.id===x.dataset.item);if(!it)return;
+      if(x.dataset.f==='ingId'){it.ingId=x.value;it.amtUnit=defUnit(ingredients.find(v=>v.id===it.ingId));renderProducts();}
+      else if(x.dataset.f==='amt'){it.amt=it.amtUnit==='l'?(parseFloat(x.value)||0)*1000:(parseFloat(x.value)||0);renderProducts();}
+      else if(x.dataset.f==='amtUnit'){it.amtUnit=x.value;renderProducts();}
+    }));
+    grid.appendChild(card);
+  });
+}
+
+document.getElementById('btnAddProduct').addEventListener('click',()=>{
+  products.push({id:uid(),name:'',emoji:'🍕',doughRecipeId:doughRecipes[0]?.id||null,doughGrams:240,items:[]});
+  renderProducts();});
+
+// ── EXPORT ─────────────────────────────────────────────────
+function buildExportRows(){
+  const rows=[];
+  products.forEach(prod=>{
+    const C=calcProduct(prod);
+    const recipe=doughRecipes.find(d=>d.id===prod.doughRecipeId);
+    const{pricePerKg}=calcDough(recipe);
+    const dci=(prod.doughGrams/1000)*pricePerKg;
+    rows.push({'Produkt':prod.name||'(bez názvu)','Ingredience':'— '+(recipe?recipe.name:'TĚSTO')+' —',
+      'Množství':prod.doughGrams+' g','Cena mat. (Kč)':+dci.toFixed(2),
+      'Mat. celkem (Kč)':'','Cena bez DPH (Kč)':'','Cena s DPH (Kč)':'','Food Cost %':''});
+    (prod.items||[]).forEach(it=>{
+      const ing=ingredients.find(i=>i.id===it.ingId);
+      const ic=ing?itemCost(ing,it.amt):0;
+      const disp=it.amtUnit==='l'?(it.amt/1000)+' l':it.amt+' '+it.amtUnit;
+      rows.push({'Produkt':'','Ingredience':ing?ing.name:'?','Množství':disp,
+        'Cena mat. (Kč)':+ic.toFixed(2),'Mat. celkem (Kč)':'','Cena bez DPH (Kč)':'','Cena s DPH (Kč)':'','Food Cost %':''});
+    });
+    rows.push({'Produkt':'','Ingredience':'SOUHRN','Množství':'','Cena mat. (Kč)':'',
+      'Mat. celkem (Kč)':+C.raw.toFixed(2),'Cena bez DPH (Kč)':+C.wM.toFixed(2),
+      'Cena s DPH (Kč)':+C.wV.toFixed(2),'Food Cost %':+C.foodCostPct.toFixed(1)});
+    rows.push({'Produkt':'','Ingredience':'','Množství':'','Cena mat. (Kč)':'','Mat. celkem (Kč)':'','Cena bez DPH (Kč)':'','Cena s DPH (Kč)':'','Food Cost %':''});
+  });
+  return rows;
+}
+function exportExcel(){
+  const rows=buildExportRows();
+  const ws=XLSX.utils.json_to_sheet(rows);
+  ws['!cols']=[{wch:22},{wch:24},{wch:12},{wch:16},{wch:18},{wch:18},{wch:16},{wch:12}];
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,'Receptury',ws);
+  XLSX.writeFile(wb,'receptury.xlsx');toast('📊 Excel stažen');
+}
+function exportCSV(){
+  const rows=buildExportRows();if(!rows.length)return;
+  const keys=Object.keys(rows[0]);
+  const lines=[keys.join(';')];
+  rows.forEach(r=>lines.push(keys.map(k=>{const v=r[k];return typeof v==='string'&&v.includes(';')?`"${v}"`:v??'';}).join(';')));
+  const blob=new Blob(['\uFEFF'+lines.join('\r\n')],{type:'text/csv;charset=utf-8'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='receptury.csv';a.click();
+  toast('📄 CSV staženo');
+}
+
+// ── INIT ───────────────────────────────────────────────────
+sb.auth.onAuthStateChange(async(event,session)=>{
+  if(session){
+    currentUser=session.user;
+    document.getElementById('userEmail').textContent=currentUser.email;
+    document.getElementById('authScreen').style.display='none';
+    document.getElementById('appScreen').style.display='block';
+    await loadAll();
+  } else {
+    loading(false);
+    document.getElementById('appScreen').style.display='none';
+    document.getElementById('authScreen').style.display='flex';
+  }
+});
+</script>
+</body>
+</html>

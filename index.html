@@ -1,7 +1,26 @@
 <!DOCTYPE html>
-<html lang="cs">
+<html lang="cs" data-metamask-disable="true">
 <head>
 <meta charset="UTF-8">
+<script>
+// Zabrání crypto wallet extensions (MetaMask, Phantom, Coinbase) v blokování stránky
+window.__disableLockdown = true;
+// Zachytí chyby z extensions aby neblokovala načítání
+window.addEventListener('unhandledrejection', function(e){
+  if(e.reason && (
+    String(e.reason).includes('solana') ||
+    String(e.reason).includes('ethereum') ||
+    String(e.reason).includes('SES') ||
+    String(e.reason).includes('lockdown') ||
+    String(e.reason).includes('intrinsics') ||
+    String(e.reason).includes('message channel') ||
+    String(e.reason).includes('listener')
+  )){e.preventDefault();}
+});
+window.addEventListener('error', function(e){
+  if(e.filename && e.filename.includes('chrome-extension')){e.preventDefault();return false;}
+});
+</script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Kalkulačka receptur</title>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;1,400&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
